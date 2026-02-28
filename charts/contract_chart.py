@@ -137,12 +137,18 @@ def build_contract_chart(
         f"{event.bot_name} {event.asset}"
     )
 
+    # Compute x-axis range: 90 seconds before expiry → expiry
+    from datetime import timedelta
+    x_start = event.contract_expiry - timedelta(seconds=90)
+    x_end = event.contract_expiry
+
     fig.update_layout(
         title=dict(
             text=title,
             font=dict(size=14, color=outcome_color.get(event.event_type, "white")),
         ),
         xaxis_title="Time",
+        xaxis=dict(range=[x_start, x_end]),
         yaxis_title=f"Price ({event.asset})",
         template="plotly_dark",
         height=450,

@@ -154,6 +154,42 @@ def penny_trade_summary(df: pd.DataFrame) -> pd.DataFrame:
     return grouped.sort_values("total_penny_pnl", ascending=False)
 
 
+def results_by_price(fills_df: pd.DataFrame) -> pd.DataFrame:
+    """Summary of trade results grouped by fill price tier.
+
+    Returns: DataFrame with columns:
+        fill_price_cents, bot_name, total_trades, wins, losses, win_rate, total_pnl
+    """
+    if fills_df.empty:
+        return pd.DataFrame()
+
+    # Only outcome fills (from WIN/LOSS/JACKPOT events)
+    outcomes = fills_df[fills_df["event_type"].isin(["WIN", "LOSS", "JACKPOT"])].copy()
+    if outcomes.empty:
+        return pd.DataFrame()
+
+    grouped = outcomes.groupby(["fill_price_cents", "bot_name"]).agg(
+        total_fills=("fill_qty", "size"),
+        total_qty=("fill_qty", "sum"),
+        wins=("fill_is_win", "sum"),
+        total_pnl=("fill_pnl", "sum"),
+    ).reset_index()
+
+    grouped["losses"] = grouped["total_fills"] - grouped["wins"]
+    grouped["win_rate"] = (
+        grouped["wins"] / grouped["total_fills"].replace(0, float("nan"))
+    ).fillna(0)
+
+    # Format price label
+    grouped["price_label"] = grouped["fill_price_cents"].apply(
+        lambda c: f"${c / 100:.2f}"
+    )
+
+    return grouped.sort_values(
+        ["fill_price_cents", "total_pnl"], ascending=[True, False]
+    )
+
+
 def overall_stats(df: pd.DataFrame) -> dict:
     """Compute top-level stats for the dashboard header."""
     if df.empty:

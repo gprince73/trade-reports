@@ -58,5 +58,5 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 # --- Streamlit Cloud URL ---
 STREAMLIT_APP_URL = os.getenv(
     "STREAMLIT_APP_URL",
-    "https://gprince73-trade-reports.streamlit.app",
+    "https://trade-reports-xbmiyglbhd5chwnievgndr.streamlit.app",
 )
