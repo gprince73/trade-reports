@@ -147,6 +147,10 @@ def tab_by_bot(df: pd.DataFrame):
         "win_rate": lambda x: f"{x:.1%}",
         "participation_rate": lambda x: f"{x:.1%}",
         "net_pnl": lambda x: f"${x:+,.2f}",
+        "yes_win_rate": lambda x: f"{x:.1%}",
+        "yes_pnl": lambda x: f"${x:+,.2f}",
+        "no_win_rate": lambda x: f"{x:.1%}",
+        "no_pnl": lambda x: f"${x:+,.2f}",
     })
 
 
@@ -159,6 +163,10 @@ def tab_by_asset(df: pd.DataFrame):
     render_table(asset_summary, {
         "win_rate": lambda x: f"{x:.1%}",
         "net_pnl": lambda x: f"${x:+,.2f}",
+        "yes_win_rate": lambda x: f"{x:.1%}",
+        "yes_pnl": lambda x: f"${x:+,.2f}",
+        "no_win_rate": lambda x: f"{x:.1%}",
+        "no_pnl": lambda x: f"${x:+,.2f}",
     })
 
 

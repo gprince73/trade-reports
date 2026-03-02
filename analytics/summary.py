@@ -82,12 +82,27 @@ def daily_summary_by_bot(df: pd.DataFrame) -> pd.DataFrame:
     sig_counts = signals.groupby("bot_name").size().rename("total_signals")
 
     # Count outcomes per bot
-    wins = outcomes[outcomes["event_type"].isin(["WIN", "JACKPOT"])].groupby("bot_name").size().rename("total_wins")
-    losses = outcomes[outcomes["event_type"] == "LOSS"].groupby("bot_name").size().rename("total_losses")
+    wins_mask = outcomes["event_type"].isin(["WIN", "JACKPOT"])
+    losses_mask = outcomes["event_type"] == "LOSS"
+
+    wins = outcomes[wins_mask].groupby("bot_name").size().rename("total_wins")
+    losses = outcomes[losses_mask].groupby("bot_name").size().rename("total_losses")
     jackpots = outcomes[outcomes["event_type"] == "JACKPOT"].groupby("bot_name").size().rename("total_jackpots")
 
     # Net P&L per bot
     pnl = outcomes.groupby("bot_name")["net_pnl"].sum().rename("net_pnl")
+
+    # YES/NO side breakdown
+    yes_out = outcomes[outcomes["side"] == "YES"]
+    no_out = outcomes[outcomes["side"] == "NO"]
+
+    yes_wins = yes_out[yes_out["event_type"].isin(["WIN", "JACKPOT"])].groupby("bot_name").size().rename("yes_wins")
+    yes_losses = yes_out[yes_out["event_type"] == "LOSS"].groupby("bot_name").size().rename("yes_losses")
+    yes_pnl = yes_out.groupby("bot_name")["net_pnl"].sum().rename("yes_pnl")
+
+    no_wins = no_out[no_out["event_type"].isin(["WIN", "JACKPOT"])].groupby("bot_name").size().rename("no_wins")
+    no_losses = no_out[no_out["event_type"] == "LOSS"].groupby("bot_name").size().rename("no_losses")
+    no_pnl = no_out.groupby("bot_name")["net_pnl"].sum().rename("no_pnl")
 
     # Combine
     summary = pd.DataFrame({
@@ -96,6 +111,12 @@ def daily_summary_by_bot(df: pd.DataFrame) -> pd.DataFrame:
         "total_losses": losses,
         "total_jackpots": jackpots,
         "net_pnl": pnl,
+        "yes_wins": yes_wins,
+        "yes_losses": yes_losses,
+        "yes_pnl": yes_pnl,
+        "no_wins": no_wins,
+        "no_losses": no_losses,
+        "no_pnl": no_pnl,
     }).fillna(0)
 
     # Derived metrics
@@ -106,6 +127,12 @@ def daily_summary_by_bot(df: pd.DataFrame) -> pd.DataFrame:
     summary["participation_rate"] = (
         total_outcomes / summary["total_signals"].replace(0, float("nan"))
     ).fillna(0)
+
+    # YES/NO win rates
+    yes_total = summary["yes_wins"] + summary["yes_losses"]
+    summary["yes_win_rate"] = (summary["yes_wins"] / yes_total.replace(0, float("nan"))).fillna(0)
+    no_total = summary["no_wins"] + summary["no_losses"]
+    summary["no_win_rate"] = (summary["no_wins"] / no_total.replace(0, float("nan"))).fillna(0)
 
     summary = summary.reset_index()
     summary = summary.sort_values("net_pnl", ascending=False)
@@ -123,14 +150,38 @@ def daily_summary_by_asset(df: pd.DataFrame) -> pd.DataFrame:
     losses = outcomes[outcomes["event_type"] == "LOSS"].groupby("asset").size().rename("total_losses")
     pnl = outcomes.groupby("asset")["net_pnl"].sum().rename("net_pnl")
 
+    # YES/NO side breakdown
+    yes_out = outcomes[outcomes["side"] == "YES"]
+    no_out = outcomes[outcomes["side"] == "NO"]
+
+    yes_wins = yes_out[yes_out["event_type"].isin(["WIN", "JACKPOT"])].groupby("asset").size().rename("yes_wins")
+    yes_losses = yes_out[yes_out["event_type"] == "LOSS"].groupby("asset").size().rename("yes_losses")
+    yes_pnl = yes_out.groupby("asset")["net_pnl"].sum().rename("yes_pnl")
+
+    no_wins = no_out[no_out["event_type"].isin(["WIN", "JACKPOT"])].groupby("asset").size().rename("no_wins")
+    no_losses = no_out[no_out["event_type"] == "LOSS"].groupby("asset").size().rename("no_losses")
+    no_pnl = no_out.groupby("asset")["net_pnl"].sum().rename("no_pnl")
+
     summary = pd.DataFrame({
         "total_wins": wins,
         "total_losses": losses,
         "net_pnl": pnl,
+        "yes_wins": yes_wins,
+        "yes_losses": yes_losses,
+        "yes_pnl": yes_pnl,
+        "no_wins": no_wins,
+        "no_losses": no_losses,
+        "no_pnl": no_pnl,
     }).fillna(0)
 
     total = summary["total_wins"] + summary["total_losses"]
     summary["win_rate"] = (summary["total_wins"] / total.replace(0, float("nan"))).fillna(0)
+
+    # YES/NO win rates
+    yes_total = summary["yes_wins"] + summary["yes_losses"]
+    summary["yes_win_rate"] = (summary["yes_wins"] / yes_total.replace(0, float("nan"))).fillna(0)
+    no_total = summary["no_wins"] + summary["no_losses"]
+    summary["no_win_rate"] = (summary["no_wins"] / no_total.replace(0, float("nan"))).fillna(0)
 
     return summary.reset_index().sort_values("net_pnl", ascending=False)
 

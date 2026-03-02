@@ -55,6 +55,12 @@ PENNY_TRADE_CENTS = 2              # Filter for $0.02 trades
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+# --- Telethon (user-client API) ---
+TELETHON_API_ID = int(os.getenv("TELETHON_API_ID") or "0")
+TELETHON_API_HASH = os.getenv("TELETHON_API_HASH") or ""
+TELETHON_SESSION_NAME = os.getenv("TELETHON_SESSION_NAME") or "trade_reports_session"
+TELETHON_CHAT_ID = int(os.getenv("TELETHON_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID") or "0")
+
 # --- Streamlit Cloud URL ---
 STREAMLIT_APP_URL = os.getenv(
     "STREAMLIT_APP_URL",

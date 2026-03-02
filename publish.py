@@ -9,7 +9,6 @@ from datetime import date
 from pathlib import Path
 
 from config import PUBLISHED_DATA_DIR, PROJECT_ROOT
-from ingestion.html_parser import HTMLMessageSource, get_export_folder
 from ingestion.models import EventType
 from analytics.summary import (
     events_to_dataframe,
@@ -22,12 +21,25 @@ from analytics.summary import (
 from charts.contract_chart import generate_penny_charts
 
 
-def export_data(export_date: date) -> dict:
+def _get_source(source_name: str, export_date: date):
+    """Instantiate the appropriate MessageSource.
+
+    Returns (source, description_string).
+    """
+    if source_name == "telethon":
+        from ingestion.telethon_parser import TelethonMessageSource
+        return TelethonMessageSource(), "Telethon API"
+    else:
+        from ingestion.html_parser import HTMLMessageSource, get_export_folder
+        folder = get_export_folder(export_date)
+        return HTMLMessageSource(folder), f"HTML export ({folder})"
+
+
+def export_data(export_date: date, source_name: str = "html") -> dict:
     """Run full pipeline and export processed data for Streamlit Cloud."""
     # 1. Parse
-    folder = get_export_folder(export_date)
-    print(f"Parsing: {folder}")
-    source = HTMLMessageSource(folder)
+    source, desc = _get_source(source_name, export_date)
+    print(f"Parsing: {desc}")
     events = source.get_events()
     print(f"  {len(events)} events parsed")
 
@@ -76,6 +88,7 @@ def export_data(export_date: date) -> dict:
     # Save metadata
     meta = {
         "export_date": export_date.isoformat(),
+        "source": source_name,
         "total_events": len(events),
         "chart_count": len(charts),
     }
@@ -113,6 +126,10 @@ def main():
         help="Export date (YYYY-MM-DD). Default: today.",
     )
     parser.add_argument(
+        "--source", type=str, choices=["html", "telethon"], default="html",
+        help="Message source: 'html' (manual export) or 'telethon' (live API). Default: html.",
+    )
+    parser.add_argument(
         "--no-push", action="store_true",
         help="Skip git push (export only).",
     )
@@ -126,8 +143,8 @@ def main():
     date_str = export_date.isoformat()
 
     # Step 1: Export
-    print(f"\n=== Publishing report for {date_str} ===\n")
-    stats = export_data(export_date)
+    print(f"\n=== Publishing report for {date_str} (source: {args.source}) ===\n")
+    stats = export_data(export_date, source_name=args.source)
 
     if not stats:
         return
@@ -151,7 +168,7 @@ def main():
     else:
         print("\nSkipping notification (--no-notify)")
 
-    print(f"\nDone. Dashboard: {PROJECT_ROOT / 'config.py'}")
+    print(f"\nDone.")
     from config import STREAMLIT_APP_URL
     print(f"View at: {STREAMLIT_APP_URL}")
 

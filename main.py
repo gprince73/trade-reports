@@ -7,7 +7,6 @@ from datetime import date
 from pathlib import Path
 
 from config import OUTPUT_DIR
-from ingestion.html_parser import HTMLMessageSource, get_export_folder
 from analytics.summary import (
     events_to_dataframe,
     daily_summary_by_bot,
@@ -18,13 +17,23 @@ from analytics.summary import (
 from charts.contract_chart import generate_penny_charts
 
 
-def run_report(export_date: date, save_charts: bool = True):
+def _get_source(source_name: str, export_date: date):
+    """Instantiate the appropriate MessageSource."""
+    if source_name == "telethon":
+        from ingestion.telethon_parser import TelethonMessageSource
+        return TelethonMessageSource()
+    else:
+        from ingestion.html_parser import HTMLMessageSource, get_export_folder
+        folder = get_export_folder(export_date)
+        return HTMLMessageSource(folder)
+
+
+def run_report(export_date: date, save_charts: bool = True, source_name: str = "html"):
     """Run the full analytics pipeline and print summary."""
-    # 1. Parse HTML
-    folder = get_export_folder(export_date)
-    print(f"Loading export from: {folder}")
-    source = HTMLMessageSource(folder)
-    events = source.get_events()
+    # 1. Parse messages
+    source = _get_source(source_name, export_date)
+    print(f"Loading from: {source_name} source")
+    events = source.get_events(target_date=export_date)
     print(f"Parsed {len(events)} trade events")
 
     # 2. Build DataFrames
@@ -83,6 +92,13 @@ def main():
         help="Export date (YYYY-MM-DD). Default: today.",
     )
     parser.add_argument(
+        "--source",
+        type=str,
+        choices=["html", "telethon"],
+        default="html",
+        help="Message source: 'html' (manual export) or 'telethon' (live API). Default: html.",
+    )
+    parser.add_argument(
         "--no-charts",
         action="store_true",
         help="Skip chart generation.",
@@ -101,7 +117,7 @@ def main():
         return
 
     export_date = date.fromisoformat(args.date)
-    run_report(export_date, save_charts=not args.no_charts)
+    run_report(export_date, save_charts=not args.no_charts, source_name=args.source)
 
 
 if __name__ == "__main__":

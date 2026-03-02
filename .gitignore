@@ -10,8 +10,12 @@ build/
 .venv/
 venv/
 
+# Telethon session files (contain auth tokens — never commit!)
+*.session
+
 # Local data (too large for repo)
 output/
+logs/
 *.txt
 !requirements.txt
 
