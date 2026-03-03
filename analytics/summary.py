@@ -241,6 +241,111 @@ def results_by_price(fills_df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+# ---------------------------------------------------------------------------
+# Gap Analysis
+# ---------------------------------------------------------------------------
+
+GAP_BUCKET_EDGES = [0, 5, 10, 20, 30, 50, 100, float("inf")]
+GAP_BUCKET_LABELS = ["$0-5", "$5-10", "$10-20", "$20-30", "$30-50", "$50-100", ">$100"]
+
+
+def gap_analysis_tables(df: pd.DataFrame) -> tuple:
+    """Analyse trade outcomes by signal gap bucket.
+
+    Gap is only present on SIGNAL events, so we JOIN signals → outcomes
+    on (contract, bot_name) to get the gap context for each outcome.
+
+    Returns (combined_df, wins_dist_df, losses_dist_df).
+    """
+    empty = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    if df.empty:
+        return empty
+
+    # --- 1. Separate signals (with gap) and outcomes ---
+    signals = df[
+        (df["event_type"] == "SIGNAL") & df["gap"].notna() & df["contract"].notna()
+    ].copy()
+    outcomes = df[
+        df["event_type"].isin(["WIN", "LOSS", "JACKPOT"]) & df["contract"].notna()
+    ].copy()
+
+    if signals.empty:
+        return empty
+
+    # Deduplicate: keep last signal per (contract, bot_name) to handle FLIP SIGNALs
+    signals = signals.sort_values("timestamp")
+    signals = signals.drop_duplicates(subset=["contract", "bot_name"], keep="last")
+
+    # Deduplicate outcomes too (rare but possible)
+    outcomes = outcomes.sort_values("timestamp")
+    outcomes = outcomes.drop_duplicates(subset=["contract", "bot_name"], keep="last")
+
+    # --- 2. Left-join signals → outcomes ---
+    merged = signals.merge(
+        outcomes[["contract", "bot_name", "event_type", "net_pnl"]],
+        on=["contract", "bot_name"],
+        how="left",
+        suffixes=("", "_outcome"),
+    )
+
+    # --- 3. Bucket by absolute gap ---
+    merged["abs_gap"] = merged["gap"].abs()
+    merged["gap_bucket"] = pd.cut(
+        merged["abs_gap"],
+        bins=GAP_BUCKET_EDGES,
+        labels=GAP_BUCKET_LABELS,
+        right=False,
+    )
+
+    # Mark outcome types
+    merged["is_win"] = merged["event_type_outcome"].isin(["WIN", "JACKPOT"])
+    merged["is_loss"] = merged["event_type_outcome"] == "LOSS"
+    merged["has_outcome"] = merged["event_type_outcome"].notna()
+
+    # --- 4. Combined table ---
+    combined = merged.groupby("gap_bucket", observed=True).agg(
+        total_signals=("gap", "size"),
+        participated=("has_outcome", "sum"),
+        wins=("is_win", "sum"),
+        losses=("is_loss", "sum"),
+        net_pnl=("net_pnl_outcome", "sum"),
+        avg_gap=("abs_gap", "mean"),
+    ).reset_index()
+
+    total_sigs = combined["total_signals"].sum()
+    combined["pct_of_signals"] = combined["total_signals"] / max(total_sigs, 1)
+    combined["participation_rate"] = (
+        combined["participated"] / combined["total_signals"].replace(0, float("nan"))
+    ).fillna(0)
+    decided = combined["wins"] + combined["losses"]
+    combined["win_rate"] = (combined["wins"] / decided.replace(0, float("nan"))).fillna(0)
+
+    # Reorder columns
+    combined = combined[
+        ["gap_bucket", "total_signals", "pct_of_signals", "participated",
+         "participation_rate", "wins", "losses", "win_rate", "avg_gap", "net_pnl"]
+    ]
+
+    # --- 5. Win / Loss distribution tables ---
+    def _distribution(mask_col: str, label: str) -> pd.DataFrame:
+        subset = merged[merged[mask_col]]
+        if subset.empty:
+            return pd.DataFrame(columns=["gap_bucket", "count", "pct", "bar"])
+        dist = subset.groupby("gap_bucket", observed=True).size().reset_index(name="count")
+        total = dist["count"].sum()
+        dist["pct"] = dist["count"] / max(total, 1)
+        max_pct = dist["pct"].max() if not dist.empty else 1
+        dist["bar"] = dist["pct"].apply(
+            lambda x: "\u2588" * max(1, int(x / max(max_pct, 0.01) * 20))
+        )
+        return dist
+
+    wins_dist = _distribution("is_win", "WINS")
+    losses_dist = _distribution("is_loss", "LOSSES")
+
+    return combined, wins_dist, losses_dist
+
+
 def overall_stats(df: pd.DataFrame) -> dict:
     """Compute top-level stats for the dashboard header."""
     if df.empty:

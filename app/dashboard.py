@@ -295,6 +295,58 @@ def tab_signal_log(df: pd.DataFrame):
     )
 
 
+def tab_gap_analysis(df: pd.DataFrame):
+    from analytics.summary import gap_analysis_tables
+    st.subheader("Gap Analysis")
+    st.caption("Gap = |PriceProxy − Strike| at signal time. Signals joined to outcomes by contract + bot.")
+
+    # Filters
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        bots = bot_multiselect(df, key="bot_filter_gap")
+    with filter_col2:
+        all_assets = sorted(df["asset"].unique())
+        selected_assets = st.multiselect(
+            "Filter by Asset", options=all_assets, default=[],
+            key="asset_filter_gap",
+        )
+
+    filtered = filter_by_bots(df, bots)
+    if selected_assets:
+        filtered = filtered[filtered["asset"].isin(selected_assets)]
+
+    combined, wins_dist, losses_dist = gap_analysis_tables(filtered)
+
+    if combined.empty:
+        st.info("No gap data available for the selected filters.")
+        return
+
+    # Combined table
+    st.markdown("#### Gap vs. Outcome")
+    render_table(combined, {
+        "pct_of_signals": lambda x: f"{x:.1%}",
+        "participation_rate": lambda x: f"{x:.1%}",
+        "win_rate": lambda x: f"{x:.1%}",
+        "avg_gap": lambda x: f"${x:,.2f}",
+        "net_pnl": lambda x: f"${x:+,.2f}",
+    })
+
+    # Side-by-side win/loss distributions
+    col_w, col_l = st.columns(2)
+    with col_w:
+        st.markdown("#### WINS Gap Distribution")
+        if not wins_dist.empty:
+            render_table(wins_dist, {"pct": lambda x: f"{x:.1%}"})
+        else:
+            st.info("No wins data.")
+    with col_l:
+        st.markdown("#### LOSSES Gap Distribution")
+        if not losses_dist.empty:
+            render_table(losses_dist, {"pct": lambda x: f"{x:.1%}"})
+        else:
+            st.info("No losses data.")
+
+
 # ---- Main entry ----
 
 def main():
@@ -340,8 +392,8 @@ def main_cloud():
     render_metrics(stats)
     st.divider()
 
-    tab_bot, tab_asset, tab_price, tab_penny, tab_charts, tab_log = st.tabs([
-        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Charts", "Signal Log",
+    tab_bot, tab_asset, tab_price, tab_penny, tab_gap, tab_charts, tab_log = st.tabs([
+        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Gap Analysis", "Charts", "Signal Log",
     ])
 
     with tab_bot:
@@ -352,6 +404,8 @@ def main_cloud():
         tab_by_price(df, fills_df)
     with tab_penny:
         tab_penny_trades(df)
+    with tab_gap:
+        tab_gap_analysis(df)
     with tab_charts:
         tab_charts_cloud()
     with tab_log:
@@ -413,8 +467,8 @@ def main_local():
     render_metrics(stats)
     st.divider()
 
-    tab_bot, tab_asset, tab_price, tab_penny, tab_charts, tab_log = st.tabs([
-        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Charts", "Signal Log",
+    tab_bot, tab_asset, tab_price, tab_penny, tab_gap, tab_charts, tab_log = st.tabs([
+        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Gap Analysis", "Charts", "Signal Log",
     ])
 
     with tab_bot:
@@ -425,6 +479,8 @@ def main_local():
         tab_by_price(df, fills_df)
     with tab_penny:
         tab_penny_trades(df)
+    with tab_gap:
+        tab_gap_analysis(df)
     with tab_charts:
         tab_charts_local(events, df)
     with tab_log:
