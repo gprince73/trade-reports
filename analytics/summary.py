@@ -245,21 +245,50 @@ def results_by_price(fills_df: pd.DataFrame) -> pd.DataFrame:
 # Gap Analysis
 # ---------------------------------------------------------------------------
 
-GAP_BUCKET_EDGES = [0, 5, 10, 20, 30, 50, 100, float("inf")]
-GAP_BUCKET_LABELS = ["$0-5", "$5-10", "$10-20", "$20-30", "$30-50", "$50-100", ">$100"]
+ASSET_GAP_BUCKETS: dict[str, dict] = {
+    "BTC": {
+        "edges":  [0, 10, 20, 30, 50, 100, float("inf")],
+        "labels": ["$0-10", "$10-20", "$20-30", "$30-50", "$50-100", ">$100"],
+    },
+    "ETH": {
+        "edges":  [0, 0.5, 1.0, 2, 3, 5, 10, float("inf")],
+        "labels": ["$0-0.50", "$0.50-1", "$1-2", "$2-3", "$3-5", "$5-10", ">$10"],
+    },
+    "SOL": {
+        "edges":  [0, 0.025, 0.05, 0.10, 0.20, 0.50, float("inf")],
+        "labels": ["<2.5\u00a2", "2.5-5\u00a2", "5-10\u00a2", "10-20\u00a2", "20-50\u00a2", ">50\u00a2"],
+    },
+    "XRP": {
+        "edges":  [0, 0.001, 0.002, 0.004, 0.0065, 0.01, 0.02, float("inf")],
+        "labels": ["<0.1\u00a2", "0.1-0.2\u00a2", "0.2-0.4\u00a2", "0.4-0.65\u00a2",
+                    "0.65-1\u00a2", "1-2\u00a2", ">2\u00a2"],
+    },
+    # Fallback for any new asset
+    "_DEFAULT": {
+        "edges":  [0, 1, 5, 10, 25, 50, 100, float("inf")],
+        "labels": ["$0-1", "$1-5", "$5-10", "$10-25", "$25-50", "$50-100", ">$100"],
+    },
+}
 
 
-def gap_analysis_tables(df: pd.DataFrame) -> tuple:
-    """Analyse trade outcomes by signal gap bucket.
+def _get_gap_buckets(asset: str) -> tuple:
+    """Return (edges, labels) for a given asset, falling back to _DEFAULT."""
+    cfg = ASSET_GAP_BUCKETS.get(asset, ASSET_GAP_BUCKETS["_DEFAULT"])
+    return cfg["edges"], cfg["labels"]
+
+
+def gap_analysis_tables(df: pd.DataFrame) -> dict:
+    """Analyse trade outcomes by signal gap bucket, per asset.
 
     Gap is only present on SIGNAL events, so we JOIN signals → outcomes
     on (contract, bot_name) to get the gap context for each outcome.
 
-    Returns (combined_df, wins_dist_df, losses_dist_df).
+    Returns dict keyed by asset name. Each value is a tuple of
+    (combined_df, wins_dist_df, losses_dist_df) using that asset's
+    scaled gap buckets.
     """
-    empty = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     if df.empty:
-        return empty
+        return {}
 
     # --- 1. Separate signals (with gap) and outcomes ---
     signals = df[
@@ -270,7 +299,7 @@ def gap_analysis_tables(df: pd.DataFrame) -> tuple:
     ].copy()
 
     if signals.empty:
-        return empty
+        return {}
 
     # Deduplicate: keep last signal per (contract, bot_name) to handle FLIP SIGNALs
     signals = signals.sort_values("timestamp")
@@ -288,62 +317,70 @@ def gap_analysis_tables(df: pd.DataFrame) -> tuple:
         suffixes=("", "_outcome"),
     )
 
-    # --- 3. Bucket by absolute gap ---
+    # Shared derived columns
     merged["abs_gap"] = merged["gap"].abs()
-    merged["gap_bucket"] = pd.cut(
-        merged["abs_gap"],
-        bins=GAP_BUCKET_EDGES,
-        labels=GAP_BUCKET_LABELS,
-        right=False,
-    )
-
-    # Mark outcome types
     merged["is_win"] = merged["event_type_outcome"].isin(["WIN", "JACKPOT"])
     merged["is_loss"] = merged["event_type_outcome"] == "LOSS"
     merged["has_outcome"] = merged["event_type_outcome"].notna()
 
-    # --- 4. Combined table ---
-    combined = merged.groupby("gap_bucket", observed=True).agg(
-        total_signals=("gap", "size"),
-        participated=("has_outcome", "sum"),
-        wins=("is_win", "sum"),
-        losses=("is_loss", "sum"),
-        net_pnl=("net_pnl_outcome", "sum"),
-        avg_gap=("abs_gap", "mean"),
-    ).reset_index()
-
-    total_sigs = combined["total_signals"].sum()
-    combined["pct_of_signals"] = combined["total_signals"] / max(total_sigs, 1)
-    combined["participation_rate"] = (
-        combined["participated"] / combined["total_signals"].replace(0, float("nan"))
-    ).fillna(0)
-    decided = combined["wins"] + combined["losses"]
-    combined["win_rate"] = (combined["wins"] / decided.replace(0, float("nan"))).fillna(0)
-
-    # Reorder columns
-    combined = combined[
-        ["gap_bucket", "total_signals", "pct_of_signals", "participated",
-         "participation_rate", "wins", "losses", "win_rate", "avg_gap", "net_pnl"]
-    ]
-
-    # --- 5. Win / Loss distribution tables ---
-    def _distribution(mask_col: str, label: str) -> pd.DataFrame:
-        subset = merged[merged[mask_col]]
-        if subset.empty:
-            return pd.DataFrame(columns=["gap_bucket", "count", "pct", "bar"])
-        dist = subset.groupby("gap_bucket", observed=True).size().reset_index(name="count")
-        total = dist["count"].sum()
-        dist["pct"] = dist["count"] / max(total, 1)
-        max_pct = dist["pct"].max() if not dist.empty else 1
-        dist["bar"] = dist["pct"].apply(
-            lambda x: "\u2588" * max(1, int(x / max(max_pct, 0.01) * 20))
+    # --- 3. Per-asset bucketing and aggregation ---
+    def _build_tables(group: pd.DataFrame, asset: str):
+        edges, labels = _get_gap_buckets(asset)
+        g = group.copy()
+        g["gap_bucket"] = pd.cut(
+            g["abs_gap"], bins=edges, labels=labels, right=False,
         )
-        return dist
 
-    wins_dist = _distribution("is_win", "WINS")
-    losses_dist = _distribution("is_loss", "LOSSES")
+        # Combined table
+        combined = g.groupby("gap_bucket", observed=True).agg(
+            total_signals=("gap", "size"),
+            participated=("has_outcome", "sum"),
+            wins=("is_win", "sum"),
+            losses=("is_loss", "sum"),
+            net_pnl=("net_pnl_outcome", "sum"),
+            avg_gap=("abs_gap", "mean"),
+        ).reset_index()
 
-    return combined, wins_dist, losses_dist
+        total_sigs = combined["total_signals"].sum()
+        combined["pct_of_signals"] = combined["total_signals"] / max(total_sigs, 1)
+        combined["participation_rate"] = (
+            combined["participated"] / combined["total_signals"].replace(0, float("nan"))
+        ).fillna(0)
+        decided = combined["wins"] + combined["losses"]
+        combined["win_rate"] = (
+            combined["wins"] / decided.replace(0, float("nan"))
+        ).fillna(0)
+
+        combined = combined[
+            ["gap_bucket", "total_signals", "pct_of_signals", "participated",
+             "participation_rate", "wins", "losses", "win_rate", "avg_gap", "net_pnl"]
+        ]
+
+        # Win / Loss distribution tables
+        def _distribution(mask_col: str) -> pd.DataFrame:
+            subset = g[g[mask_col]]
+            if subset.empty:
+                return pd.DataFrame(columns=["gap_bucket", "count", "pct", "bar"])
+            dist = subset.groupby("gap_bucket", observed=True).size().reset_index(name="count")
+            total = dist["count"].sum()
+            dist["pct"] = dist["count"] / max(total, 1)
+            max_pct = dist["pct"].max() if not dist.empty else 1
+            dist["bar"] = dist["pct"].apply(
+                lambda x: "\u2588" * max(1, int(x / max(max_pct, 0.01) * 20))
+            )
+            return dist
+
+        return combined, _distribution("is_win"), _distribution("is_loss")
+
+    results: dict = {}
+    for asset, group in merged.groupby("asset"):
+        if asset == "UNKNOWN":
+            continue
+        combined, wins_dist, losses_dist = _build_tables(group, asset)
+        if not combined.empty:
+            results[asset] = (combined, wins_dist, losses_dist)
+
+    return results
 
 
 def overall_stats(df: pd.DataFrame) -> dict:

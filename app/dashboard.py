@@ -309,9 +309,18 @@ def tab_signal_log(df: pd.DataFrame):
     )
 
 
+def _fmt_avg_gap(x):
+    """Format avg_gap adaptively: cents for tiny values, dollars otherwise."""
+    if x < 0.01:
+        return f"{x * 100:.3f}\u00a2"
+    if x < 1:
+        return f"{x * 100:.2f}\u00a2"
+    return f"${x:,.2f}"
+
+
 def tab_gap_analysis(df: pd.DataFrame):
     st.subheader("Gap Analysis")
-    st.caption("Gap = |PriceProxy − Strike| at signal time. Signals joined to outcomes by contract + bot.")
+    st.caption("Gap = |PriceProxy \u2212 Strike| at signal time. Signals joined to outcomes by contract + bot.")
 
     # Filters
     filter_col1, filter_col2 = st.columns(2)
@@ -328,36 +337,53 @@ def tab_gap_analysis(df: pd.DataFrame):
     if selected_assets:
         filtered = filtered[filtered["asset"].isin(selected_assets)]
 
-    combined, wins_dist, losses_dist = gap_analysis_tables(filtered)
+    gap_results = gap_analysis_tables(filtered)
 
-    if combined.empty:
+    if not gap_results:
         st.info("No gap data available for the selected filters.")
         return
 
-    # Combined table
-    st.markdown("#### Gap vs. Outcome")
-    render_table(combined, {
-        "pct_of_signals": lambda x: f"{x:.1%}",
-        "participation_rate": lambda x: f"{x:.1%}",
-        "win_rate": lambda x: f"{x:.1%}",
-        "avg_gap": lambda x: f"${x:,.2f}",
-        "net_pnl": lambda x: f"${x:+,.2f}",
-    })
+    # Sort assets by signal count descending
+    display_order = sorted(
+        gap_results.keys(),
+        key=lambda a: gap_results[a][0]["total_signals"].sum()
+        if not gap_results[a][0].empty else 0,
+        reverse=True,
+    )
 
-    # Side-by-side win/loss distributions
-    col_w, col_l = st.columns(2)
-    with col_w:
-        st.markdown("#### WINS Gap Distribution")
-        if not wins_dist.empty:
-            render_table(wins_dist, {"pct": lambda x: f"{x:.1%}"})
-        else:
-            st.info("No wins data.")
-    with col_l:
-        st.markdown("#### LOSSES Gap Distribution")
-        if not losses_dist.empty:
-            render_table(losses_dist, {"pct": lambda x: f"{x:.1%}"})
-        else:
-            st.info("No losses data.")
+    for asset in display_order:
+        combined, wins_dist, losses_dist = gap_results[asset]
+        if combined.empty:
+            continue
+
+        st.markdown(f"### {asset}")
+
+        # Combined table
+        st.markdown("#### Gap vs. Outcome")
+        render_table(combined, {
+            "pct_of_signals": lambda x: f"{x:.1%}",
+            "participation_rate": lambda x: f"{x:.1%}",
+            "win_rate": lambda x: f"{x:.1%}",
+            "avg_gap": _fmt_avg_gap,
+            "net_pnl": lambda x: f"${x:+,.2f}",
+        })
+
+        # Side-by-side win/loss distributions
+        col_w, col_l = st.columns(2)
+        with col_w:
+            st.markdown("#### WINS Gap Distribution")
+            if not wins_dist.empty:
+                render_table(wins_dist, {"pct": lambda x: f"{x:.1%}"})
+            else:
+                st.info("No wins data.")
+        with col_l:
+            st.markdown("#### LOSSES Gap Distribution")
+            if not losses_dist.empty:
+                render_table(losses_dist, {"pct": lambda x: f"{x:.1%}"})
+            else:
+                st.info("No losses data.")
+
+        st.divider()
 
 
 # ---- Main entry ----
