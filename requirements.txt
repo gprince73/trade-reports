@@ -4,7 +4,7 @@ pandas>=2.0
 plotly>=5.18
 streamlit>=1.30
 pytz>=2024.1
-python-telegram-bot>=21.0
 python-dotenv>=1.0
 pyarrow>=14.0
-telethon>=1.36
+# Telethon & python-telegram-bot are local-only (not needed on Streamlit Cloud)
+# Install locally with: pip install telethon>=1.36 python-telegram-bot>=21.0

@@ -19,7 +19,6 @@ logs/
 *.txt
 !requirements.txt
 !packages.txt
-!runtime.txt
 
 # OS
 Thumbs.db
