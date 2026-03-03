@@ -16,9 +16,23 @@ import pandas as pd
 import plotly.io as pio
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from config import TELEGRAM_EXPORT_ROOT, PUBLISHED_DATA_DIR, IS_CLOUD
+
+# Import analytics eagerly so any import errors surface immediately
+from analytics.summary import (                     # noqa: E402
+    events_to_dataframe,
+    fills_to_dataframe,
+    daily_summary_by_bot,
+    daily_summary_by_asset,
+    penny_trade_summary,
+    results_by_price,
+    overall_stats,
+    gap_analysis_tables,
+)
 
 
 st.set_page_config(
@@ -70,7 +84,6 @@ def load_cloud_charts():
 def load_local_data(export_date: date):
     """Load and parse all data for a given export date."""
     from ingestion.html_parser import HTMLMessageSource, get_export_folder
-    from analytics.summary import events_to_dataframe, fills_to_dataframe
 
     folder = get_export_folder(export_date)
     source = HTMLMessageSource(folder)
@@ -138,7 +151,6 @@ def filter_by_bots(df: pd.DataFrame, bots: list[str]) -> pd.DataFrame:
 # ---- Tab renderers ----
 
 def tab_by_bot(df: pd.DataFrame):
-    from analytics.summary import daily_summary_by_bot
     st.subheader("Performance by Bot")
     bots = bot_multiselect(df, key="bot_filter_bybot")
     filtered = filter_by_bots(df, bots)
@@ -155,7 +167,6 @@ def tab_by_bot(df: pd.DataFrame):
 
 
 def tab_by_asset(df: pd.DataFrame):
-    from analytics.summary import daily_summary_by_asset
     st.subheader("Performance by Asset")
     bots = bot_multiselect(df, key="bot_filter_byasset")
     filtered = filter_by_bots(df, bots)
@@ -171,7 +182,6 @@ def tab_by_asset(df: pd.DataFrame):
 
 
 def tab_by_price(df: pd.DataFrame, fills_df: pd.DataFrame):
-    from analytics.summary import results_by_price
     st.subheader("Results by Price")
     bots = bot_multiselect(df, key="bot_filter_byprice")
 
@@ -206,7 +216,6 @@ def tab_by_price(df: pd.DataFrame, fills_df: pd.DataFrame):
 
 
 def tab_penny_trades(df: pd.DataFrame):
-    from analytics.summary import penny_trade_summary
     st.subheader("$0.02 Trade Analysis")
     bots = bot_multiselect(df, key="bot_filter_penny")
     filtered = filter_by_bots(df, bots)
@@ -296,7 +305,6 @@ def tab_signal_log(df: pd.DataFrame):
 
 
 def tab_gap_analysis(df: pd.DataFrame):
-    from analytics.summary import gap_analysis_tables
     st.subheader("Gap Analysis")
     st.caption("Gap = |PriceProxy − Strike| at signal time. Signals joined to outcomes by contract + bot.")
 
@@ -359,14 +367,6 @@ def main():
 
 def main_cloud():
     """Cloud mode: render from pre-processed parquet data."""
-    try:
-        from analytics.summary import overall_stats
-    except Exception as e:
-        st.error(f"Failed to import analytics.summary: {type(e).__name__}: {e}")
-        import traceback
-        st.code(traceback.format_exc())
-        return
-
     result = load_cloud_data()
     df, fills_df, _ = result
 
@@ -420,8 +420,6 @@ def main_cloud():
 
 def main_local():
     """Local mode: parse raw HTML exports on the fly."""
-    from analytics.summary import overall_stats
-
     st.sidebar.header("Settings")
 
     # Discover available export folders
