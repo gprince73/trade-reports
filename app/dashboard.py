@@ -23,16 +23,21 @@ if _project_root not in sys.path:
 from config import TELEGRAM_EXPORT_ROOT, PUBLISHED_DATA_DIR, IS_CLOUD
 
 # Import analytics eagerly so any import errors surface immediately
-from analytics.summary import (                     # noqa: E402
-    events_to_dataframe,
-    fills_to_dataframe,
-    daily_summary_by_bot,
-    daily_summary_by_asset,
-    penny_trade_summary,
-    results_by_price,
-    overall_stats,
-    gap_analysis_tables,
-)
+_import_error = None
+try:
+    from analytics.summary import (                 # noqa: E402
+        events_to_dataframe,
+        fills_to_dataframe,
+        daily_summary_by_bot,
+        daily_summary_by_asset,
+        penny_trade_summary,
+        results_by_price,
+        overall_stats,
+        gap_analysis_tables,
+    )
+except Exception as _e:
+    import traceback
+    _import_error = traceback.format_exc()
 
 
 st.set_page_config(
@@ -359,6 +364,13 @@ def tab_gap_analysis(df: pd.DataFrame):
 
 def main():
     st.title("Trade Reports Dashboard")
+
+    if _import_error:
+        st.error("Failed to load analytics module")
+        st.code(_import_error)
+        st.info(f"Python {sys.version}")
+        return
+
     if IS_CLOUD:
         main_cloud()
     else:
