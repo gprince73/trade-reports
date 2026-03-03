@@ -359,7 +359,13 @@ def main():
 
 def main_cloud():
     """Cloud mode: render from pre-processed parquet data."""
-    from analytics.summary import overall_stats
+    try:
+        from analytics.summary import overall_stats
+    except Exception as e:
+        st.error(f"Failed to import analytics.summary: {type(e).__name__}: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        return
 
     result = load_cloud_data()
     df, fills_df, _ = result
