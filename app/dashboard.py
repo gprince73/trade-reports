@@ -22,9 +22,12 @@ if _project_root not in sys.path:
 
 from config import TELEGRAM_EXPORT_ROOT, PUBLISHED_DATA_DIR, IS_CLOUD
 
-# Import analytics eagerly so any import errors surface immediately
+# Import analytics — force-reload to bust stale .pyc caches on Cloud
 _import_error = None
 try:
+    import importlib
+    import analytics.summary as _summary_mod
+    importlib.reload(_summary_mod)
     from analytics.summary import (                 # noqa: E402
         events_to_dataframe,
         fills_to_dataframe,
@@ -449,7 +452,10 @@ def main_cloud():
     with tab_penny:
         tab_penny_trades(df)
     with tab_gap:
-        tab_gap_analysis(df)
+        try:
+            tab_gap_analysis(df)
+        except Exception as e:
+            st.error(f"Gap Analysis error: {type(e).__name__}: {e}")
     with tab_charts:
         tab_charts_cloud()
     with tab_log:
@@ -522,7 +528,10 @@ def main_local():
     with tab_penny:
         tab_penny_trades(df)
     with tab_gap:
-        tab_gap_analysis(df)
+        try:
+            tab_gap_analysis(df)
+        except Exception as e:
+            st.error(f"Gap Analysis error: {type(e).__name__}: {e}")
     with tab_charts:
         tab_charts_local(events, df)
     with tab_log:
