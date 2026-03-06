@@ -1,5 +1,16 @@
 [
   {
+    "date": "2026-03-06",
+    "sent_at": "2026-03-06T00:33:43",
+    "net_pnl": 5827.910000000002,
+    "signals": 15181,
+    "wins": 1549,
+    "losses": 267,
+    "jackpots": 56,
+    "win_rate": 0.8529735682819384,
+    "message_html": "<b>Daily Trade Report - 2026-03-06</b>\n\n\ud83d\udcb0 <b>Net P&L: $+5,827.91</b>\n\nSignals: 15181\nWins: 1549 | Losses: 267 | Jackpots: 56\nWin Rate: 85.3%\n\n<a href=\"https://trade-reports-xbmiyglbhd5chwnievgndr.streamlit.app\">View Full Dashboard</a>"
+  },
+  {
     "date": "2026-03-05",
     "sent_at": "2026-03-05T20:03:47",
     "net_pnl": 5809.220000000001,
