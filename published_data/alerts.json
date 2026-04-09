@@ -1,14 +1,14 @@
 [
   {
     "date": "2026-04-08",
-    "sent_at": "2026-04-08T20:08:28",
-    "net_pnl": 5875.900000000001,
-    "signals": 35544,
-    "wins": 3834,
-    "losses": 916,
-    "jackpots": 173,
-    "win_rate": 0.8071578947368421,
-    "message_html": "<b>Daily Trade Report - 2026-04-08</b>\n\n\ud83d\udcb0 <b>Net P&L: $+5,875.90</b>\n\nSignals: 35544\nWins: 3834 | Losses: 916 | Jackpots: 173\nWin Rate: 80.7%\n\n<a href=\"https://trade-reports-xbmiyglbhd5chwnievgndr.streamlit.app\">View Full Dashboard</a>"
+    "sent_at": "2026-04-08T22:27:39",
+    "net_pnl": 5878.3,
+    "signals": 35614,
+    "wins": 3842,
+    "losses": 917,
+    "jackpots": 174,
+    "win_rate": 0.8073124606009666,
+    "message_html": "<b>Daily Trade Report - 2026-04-08</b>\n\n\ud83d\udcb0 <b>Net P&L: $+5,878.30</b>\n\nSignals: 35614\nWins: 3842 | Losses: 917 | Jackpots: 174\nWin Rate: 80.7%\n\n<a href=\"https://trade-reports-xbmiyglbhd5chwnievgndr.streamlit.app\">View Full Dashboard</a>"
   },
   {
     "date": "2026-04-07",
