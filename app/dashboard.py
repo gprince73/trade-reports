@@ -156,6 +156,36 @@ def filter_by_bots(df: pd.DataFrame, bots: list[str]) -> pd.DataFrame:
     return df[df["bot_name"].isin(bots)]
 
 
+def append_subtotal_row(summary: pd.DataFrame, label_col: str) -> pd.DataFrame:
+    """Append a TOTAL row that aggregates the rows currently in `summary`.
+    Counts/P&L are summed; rates are recomputed from those sums."""
+    if summary is None or summary.empty:
+        return summary
+
+    sum_cols = [
+        "total_signals", "total_wins", "total_losses", "total_jackpots",
+        "net_pnl", "yes_wins", "yes_losses", "yes_pnl",
+        "no_wins", "no_losses", "no_pnl",
+    ]
+    totals: dict = {label_col: "TOTAL (filtered)"}
+    for c in sum_cols:
+        if c in summary.columns:
+            totals[c] = summary[c].sum()
+
+    decided = totals.get("total_wins", 0) + totals.get("total_losses", 0)
+    totals["win_rate"] = totals.get("total_wins", 0) / decided if decided else 0
+    sigs = totals.get("total_signals", 0)
+    if "total_signals" in summary.columns:
+        totals["participation_rate"] = decided / sigs if sigs else 0
+
+    yes_decided = totals.get("yes_wins", 0) + totals.get("yes_losses", 0)
+    totals["yes_win_rate"] = totals.get("yes_wins", 0) / yes_decided if yes_decided else 0
+    no_decided = totals.get("no_wins", 0) + totals.get("no_losses", 0)
+    totals["no_win_rate"] = totals.get("no_wins", 0) / no_decided if no_decided else 0
+
+    return pd.concat([summary, pd.DataFrame([totals])], ignore_index=True)
+
+
 # ---- Tab renderers ----
 
 def tab_by_bot(df: pd.DataFrame):
@@ -163,6 +193,8 @@ def tab_by_bot(df: pd.DataFrame):
     bots = bot_multiselect(df, key="bot_filter_bybot")
     filtered = filter_by_bots(df, bots)
     bot_summary = daily_summary_by_bot(filtered)
+    if bots and bot_summary is not None and len(bot_summary) > 1:
+        bot_summary = append_subtotal_row(bot_summary, "bot_name")
     render_table(bot_summary, {
         "win_rate": lambda x: f"{x:.1%}",
         "participation_rate": lambda x: f"{x:.1%}",
@@ -179,6 +211,8 @@ def tab_by_asset(df: pd.DataFrame):
     bots = bot_multiselect(df, key="bot_filter_byasset")
     filtered = filter_by_bots(df, bots)
     asset_summary = daily_summary_by_asset(filtered)
+    if bots and asset_summary is not None and len(asset_summary) > 1:
+        asset_summary = append_subtotal_row(asset_summary, "asset")
     render_table(asset_summary, {
         "win_rate": lambda x: f"{x:.1%}",
         "net_pnl": lambda x: f"${x:+,.2f}",
