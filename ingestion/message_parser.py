@@ -34,7 +34,7 @@ EVENT_PATTERNS = [
     (re.compile(r"\bLOSS\b"), EventType.LOSS),
     (re.compile(r"\bWIN\b"), EventType.WIN),
     (re.compile(r"FLIP\s+SIGNAL", re.IGNORECASE), EventType.SIGNAL),
-    (re.compile(r"\bSIGNAL\b"), EventType.SIGNAL),
+    (re.compile(r"\bSIGNAL\b", re.IGNORECASE), EventType.SIGNAL),
 ]
 
 # Field extraction
@@ -64,7 +64,13 @@ MONTH_MAP = {
     "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
 }
 
-KNOWN_ASSETS = {"BTC", "ETH", "SOL", "XRP"}
+KNOWN_ASSETS = {"BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"}
+
+# Converny family — name format is "Converny T(x) Signal #(y) ASSET" /
+# "Converny T(x) WIN ASSET" / "Converny T(x) LOSS ASSET". We collapse
+# all signal counts into a single bot per tier so the dashboard groups
+# by tier (Converny T1 / T2 / T3).
+CONVERNY_RE = re.compile(r"\bConverny\s+T(\d+)\b", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -125,12 +131,49 @@ def classify_event(text: str) -> Optional[EventType]:
     return None
 
 
+def _detect_asset_and_timeframe(text: str, first_line: str) -> tuple[str, str]:
+    """Find asset (last token of first line, then second line, then contract)
+    and timeframe (from contract). Used by Converny path."""
+    asset = "UNKNOWN"
+    timeframe = "15M"
+
+    tokens = first_line.split()
+    if tokens and tokens[-1].upper() in KNOWN_ASSETS:
+        asset = tokens[-1].upper()
+
+    if asset == "UNKNOWN":
+        lines = text.split("\n")
+        if len(lines) > 1:
+            second_tokens = lines[1].strip().split()
+            if second_tokens and second_tokens[0].upper() in KNOWN_ASSETS:
+                asset = second_tokens[0].upper()
+
+    contract_match = CONTRACT_RE.search(text)
+    if contract_match:
+        cinfo = decode_contract(contract_match.group(1))
+        if cinfo:
+            if asset == "UNKNOWN":
+                asset = cinfo.asset
+            timeframe = cinfo.timeframe
+
+    return asset, timeframe
+
+
 def extract_bot_and_asset(text: str, event_type: EventType) -> tuple[str, str, str]:
     """Extract bot name, asset, and timeframe from message text.
 
     Returns (bot_name, asset, timeframe).
     """
     first_line = text.split("\n")[0].strip()
+
+    # Converny family: collapse "Converny T1 Signal #8 ...", "Converny T2 WIN ETH",
+    # "Converny T3 LOSS XRP", etc. into "Converny T<n>" so the dashboard groups
+    # all signal counts under a single per-tier bot.
+    converny_match = CONVERNY_RE.search(first_line)
+    if converny_match:
+        bot_name = f"Converny T{int(converny_match.group(1))}"
+        asset, timeframe = _detect_asset_and_timeframe(text, first_line)
+        return bot_name, asset, timeframe
 
     cleaned = first_line
     cleaned = re.sub(r"^[\s\U0001f300-\U0001f9ff\u2600-\u2bff\ufe0f\u200d]+", "", cleaned)
