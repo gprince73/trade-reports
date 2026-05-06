@@ -50,9 +50,15 @@ SESSION_RE = re.compile(r"Session:\s*(\d+)W-(\d+)L\s*\|\s*\$([+-]?[\d,.]+)")
 FLIPS_RE = re.compile(r"Flips:\s*(\d+)")
 
 # Fill lines:  "✅ NO 20@90¢ → $+2.00"  or  "❌ YES 83@2c -> $-1.66"
+# Also handles Ferny31-Stop format without emoji prefix and decimal prices:
+#   "  NO 10@90.0¢ → $+1.00"
 FILL_RE = re.compile(
-    r"([✅❌])\s*(YES|NO)\s+(\d+)@(\d+)[¢c]\s*(?:→|->|&gt;)\s*\$([+-]?[\d,.]+)"
+    r"([✅❌])?\s*(YES|NO)\s+(\d+)@(\d+(?:\.\d+)?)[¢c]\s*(?:→|->|&gt;)\s*\$([+-]?[\d,.]+)"
 )
+
+# Stop-loss lines (Ferny31-Stop format)
+STOP_SOLD_RE = re.compile(r"Stop sold:\s*(\d+)\s*@\s*(\d+)c")
+STOP_HELD_RE = re.compile(r"Stop held:\s*(\d+)\s*(?:→|->)\s*settlement")
 
 # Contract ID decoder: KXBTC15M-26FEB031015-15
 CONTRACT_ID_RE = re.compile(
@@ -186,12 +192,16 @@ def parse_fills(text: str) -> list[Fill]:
     """Extract all fill lines from a WIN/LOSS/JACKPOT message."""
     fills = []
     for m in FILL_RE.finditer(text):
+        emoji = m.group(1)
+        pnl = parse_currency(m.group(5))
+        # When emoji prefix is missing (Ferny31-Stop format), infer from PnL sign
+        is_win = (emoji == "✅") if emoji else (pnl > 0)
         fills.append(Fill(
             side=Side.YES if m.group(2) == "YES" else Side.NO,
             quantity=int(m.group(3)),
-            price_cents=int(m.group(4)),
-            pnl=parse_currency(m.group(5)),
-            is_win=(m.group(1) == "✅"),
+            price_cents=int(float(m.group(4))),
+            pnl=pnl,
+            is_win=is_win,
         ))
     return fills
 
@@ -301,6 +311,18 @@ def parse_text_to_event(plain_text: str, timestamp: datetime) -> Optional[TradeE
     if flips_match:
         flips = int(flips_match.group(1))
 
+    # Stop-loss data
+    stop_sold_qty = None
+    stop_sold_price_cents = None
+    stop_held_qty = None
+    stop_sold_match = STOP_SOLD_RE.search(plain_text)
+    if stop_sold_match:
+        stop_sold_qty = int(stop_sold_match.group(1))
+        stop_sold_price_cents = int(stop_sold_match.group(2))
+    stop_held_match = STOP_HELD_RE.search(plain_text)
+    if stop_held_match:
+        stop_held_qty = int(stop_held_match.group(1))
+
     return TradeEvent(
         timestamp=timestamp,
         event_type=event_type,
@@ -321,5 +343,8 @@ def parse_text_to_event(plain_text: str, timestamp: datetime) -> Optional[TradeE
         session_losses=session_losses,
         session_pnl=session_pnl,
         flips=flips,
+        stop_sold_qty=stop_sold_qty,
+        stop_sold_price_cents=stop_sold_price_cents,
+        stop_held_qty=stop_held_qty,
         raw_text=plain_text,
     )

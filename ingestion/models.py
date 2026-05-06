@@ -52,6 +52,9 @@ class TradeEvent:
     session_losses: Optional[int] = None
     session_pnl: Optional[float] = None
     flips: Optional[int] = None
+    stop_sold_qty: Optional[int] = None
+    stop_sold_price_cents: Optional[int] = None
+    stop_held_qty: Optional[int] = None
     raw_text: str = ""
 
 

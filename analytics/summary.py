@@ -35,7 +35,25 @@ def events_to_dataframe(events: List[TradeEvent]) -> pd.DataFrame:
             "has_penny_fill": any(f.price_cents == 2 for f in e.fills),
             "penny_fill_qty": sum(f.quantity for f in e.fills if f.price_cents == 2),
             "penny_fill_pnl": sum(f.pnl for f in e.fills if f.price_cents == 2),
+            "stop_sold_qty": e.stop_sold_qty,
+            "stop_sold_price_cents": e.stop_sold_price_cents,
+            "stop_held_qty": e.stop_held_qty,
+            "has_stop": e.stop_sold_qty is not None,
         }
+
+        # Compute hypothetical P&L (what if stopped contracts held to settlement)
+        # Fill PnL lines show theoretical settlement P&L for ALL entered contracts.
+        # Net includes actual stop mechanics. So: hypothetical = sum of fill PnLs.
+        fill_pnl_total = sum(f.pnl for f in e.fills) if e.fills else None
+        row["fill_pnl_total"] = fill_pnl_total
+
+        if e.stop_sold_qty is not None and e.net_pnl is not None and fill_pnl_total is not None:
+            row["hypothetical_pnl"] = fill_pnl_total
+            row["stop_impact"] = e.net_pnl - fill_pnl_total
+        else:
+            row["hypothetical_pnl"] = None
+            row["stop_impact"] = None
+
         rows.append(row)
 
     df = pd.DataFrame(rows)

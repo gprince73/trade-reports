@@ -149,18 +149,24 @@ def main():
     if not stats:
         return
 
-    # Step 2: Git push
+    # Step 2: Build and save alert data (before git push so it gets committed)
+    from notifications.telegram_bot import build_alert_data, save_alert
+    alert_data = build_alert_data(stats, date_str)
+    save_alert(alert_data, PUBLISHED_DATA_DIR)
+    print("  Saved alerts.json")
+
+    # Step 3: Git push
     if not args.no_push:
         print("\nPushing to GitHub...")
         git_push(date_str)
     else:
         print("\nSkipping git push (--no-push)")
 
-    # Step 3: Telegram notification
+    # Step 4: Telegram notification
     if not args.no_notify:
         print("\nSending Telegram notification...")
         from notifications.telegram_bot import send_report_notification
-        sent = send_report_notification(stats, date_str)
+        sent, _ = send_report_notification(stats, date_str)
         if sent:
             print("  Telegram message sent!")
         else:

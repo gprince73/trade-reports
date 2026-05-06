@@ -114,6 +114,49 @@ def render_metrics(stats: dict):
     col6.metric("Net P&L", f"${float(stats.get('net_pnl', 0)):+,.2f}")
 
 
+def render_alert_banner():
+    """Render the latest Telegram alert as a dashboard banner."""
+    alerts_path = PUBLISHED_DATA_DIR / "alerts.json"
+    if not alerts_path.exists():
+        return
+
+    try:
+        alerts = json.loads(alerts_path.read_text())
+    except (json.JSONDecodeError, ValueError):
+        return
+
+    if not alerts:
+        return
+
+    latest = alerts[0]
+    net_pnl = latest.get("net_pnl", 0)
+    date_str = latest.get("date", "?")
+    sent_at = latest.get("sent_at", "")
+    wins = latest.get("wins", 0)
+    losses = latest.get("losses", 0)
+    jackpots = latest.get("jackpots", 0)
+    win_rate = latest.get("win_rate", 0)
+    signals = latest.get("signals", 0)
+
+    sent_label = ""
+    if sent_at:
+        sent_label = f"  |  Sent: {sent_at[:16].replace('T', ' ')}"
+
+    alert_text = (
+        f"\U0001f4e2 **Daily Report ({date_str})**  "
+        f"Net P&L: **${net_pnl:+,.2f}**  |  "
+        f"Signals: {signals}  |  "
+        f"W/L/J: {wins}/{losses}/{jackpots}  |  "
+        f"Win Rate: {win_rate:.1%}"
+        f"{sent_label}"
+    )
+
+    if net_pnl >= 0:
+        st.success(alert_text)
+    else:
+        st.error(alert_text)
+
+
 def render_table(df: pd.DataFrame, fmt_cols: dict | None = None):
     """Render a DataFrame with optional column formatting."""
     if df is None or df.empty:
@@ -321,6 +364,110 @@ def _fmt_avg_gap(x):
     return f"${x:,.2f}"
 
 
+def tab_stop_analysis(df: pd.DataFrame):
+    st.subheader("Stop-Loss Impact Analysis")
+    st.caption("Compares actual P&L (with stop) vs hypothetical P&L (held to settlement).")
+
+    if "has_stop" not in df.columns:
+        st.info("No stop data available. Re-export with updated parser.")
+        return
+
+    # Filter to results with stop data
+    results = df[
+        (df["event_type"].isin(["WIN", "LOSS", "JACKPOT"]))
+        & (df["has_stop"] == True)
+        & (df["hypothetical_pnl"].notna())
+    ].copy()
+
+    if results.empty:
+        st.info("No stop-loss trades found in the selected date range.")
+        return
+
+    # Filters
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        bots = bot_multiselect(df, key="bot_filter_stop")
+    with filter_col2:
+        all_assets = sorted(results["asset"].unique())
+        selected_assets = st.multiselect(
+            "Filter by Asset", options=all_assets, default=[],
+            key="asset_filter_stop",
+        )
+
+    if bots:
+        results = results[results["bot_name"].isin(bots)]
+    if selected_assets:
+        results = results[results["asset"].isin(selected_assets)]
+
+    if results.empty:
+        st.info("No stop-loss trades match the selected filters.")
+        return
+
+    # Classify each trade
+    results["classification"] = results.apply(
+        lambda r: (
+            "Flipped (WIN→LOSS)" if r["hypothetical_pnl"] > 0 and r["net_pnl"] < 0
+            else "Helped (reduced loss)" if r["stop_impact"] > 0
+            else "Hurt (reduced win)" if r["stop_impact"] < 0
+            else "Neutral"
+        ),
+        axis=1,
+    )
+
+    # KPI row
+    helped = results[results["stop_impact"] > 0]
+    hurt = results[results["stop_impact"] < 0]
+    flipped = results[(results["hypothetical_pnl"] > 0) & (results["net_pnl"] < 0)]
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Stop Trades", len(results))
+    c2.metric("Helped", len(helped))
+    c3.metric("Hurt", len(hurt))
+    c4.metric("Flipped W\u2192L", len(flipped))
+    c5.metric("Avg Savings", f"${helped['stop_impact'].mean():+,.2f}" if not helped.empty else "$0.00")
+    c6.metric("Net Impact", f"${results['stop_impact'].sum():+,.2f}")
+
+    st.divider()
+
+    # Summary by asset
+    st.markdown("#### Impact by Asset")
+    asset_groups = results.groupby("asset").agg(
+        trades=("net_pnl", "count"),
+        wins=("event_type", lambda x: (x.isin(["WIN", "JACKPOT"])).sum()),
+        actual_pnl=("net_pnl", "sum"),
+        hypothetical_pnl=("hypothetical_pnl", "sum"),
+        stop_impact=("stop_impact", "sum"),
+        flipped=("classification", lambda x: (x == "Flipped (WIN→LOSS)").sum()),
+    ).reset_index()
+    asset_groups["win_rate"] = asset_groups["wins"] / asset_groups["trades"]
+
+    render_table(asset_groups[["asset", "trades", "win_rate", "actual_pnl", "hypothetical_pnl", "stop_impact", "flipped"]], {
+        "win_rate": lambda x: f"{x:.1%}",
+        "actual_pnl": lambda x: f"${x:+,.2f}",
+        "hypothetical_pnl": lambda x: f"${x:+,.2f}",
+        "stop_impact": lambda x: f"${x:+,.2f}",
+    })
+
+    st.divider()
+
+    # Detail table
+    st.markdown("#### Individual Stop Trades")
+    detail_cols = [
+        "timestamp", "bot_name", "asset", "side", "event_type",
+        "stop_sold_qty", "stop_sold_price_cents", "stop_held_qty",
+        "net_pnl", "hypothetical_pnl", "stop_impact", "classification",
+    ]
+    existing = [c for c in detail_cols if c in results.columns]
+    detail = results[existing].sort_values("stop_impact")
+
+    fmt = {
+        "net_pnl": lambda x: f"${x:+,.2f}",
+        "hypothetical_pnl": lambda x: f"${x:+,.2f}",
+        "stop_impact": lambda x: f"${x:+,.2f}",
+    }
+    render_table(detail, fmt)
+
+
 def tab_gap_analysis(df: pd.DataFrame):
     st.subheader("Gap Analysis")
     st.caption("Gap = |PriceProxy \u2212 Strike| at signal time. Signals joined to outcomes by contract + bot.")
@@ -437,10 +584,11 @@ def main_cloud():
 
     stats = overall_stats(df)
     render_metrics(stats)
+    render_alert_banner()
     st.divider()
 
-    tab_bot, tab_asset, tab_price, tab_penny, tab_gap, tab_charts, tab_log = st.tabs([
-        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Gap Analysis", "Charts", "Signal Log",
+    tab_bot, tab_asset, tab_price, tab_penny, tab_gap, tab_stop, tab_charts, tab_log = st.tabs([
+        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Gap Analysis", "Stop Analysis", "Charts", "Signal Log",
     ])
 
     with tab_bot:
@@ -456,6 +604,11 @@ def main_cloud():
             tab_gap_analysis(df)
         except Exception as e:
             st.error(f"Gap Analysis error: {type(e).__name__}: {e}")
+    with tab_stop:
+        try:
+            tab_stop_analysis(df)
+        except Exception as e:
+            st.error(f"Stop Analysis error: {type(e).__name__}: {e}")
     with tab_charts:
         tab_charts_cloud()
     with tab_log:
@@ -513,10 +666,11 @@ def main_local():
 
     stats = overall_stats(df)
     render_metrics(stats)
+    render_alert_banner()
     st.divider()
 
-    tab_bot, tab_asset, tab_price, tab_penny, tab_gap, tab_charts, tab_log = st.tabs([
-        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Gap Analysis", "Charts", "Signal Log",
+    tab_bot, tab_asset, tab_price, tab_penny, tab_gap, tab_stop, tab_charts, tab_log = st.tabs([
+        "By Bot", "By Asset", "By Price", "$0.02 Trades", "Gap Analysis", "Stop Analysis", "Charts", "Signal Log",
     ])
 
     with tab_bot:
@@ -532,6 +686,11 @@ def main_local():
             tab_gap_analysis(df)
         except Exception as e:
             st.error(f"Gap Analysis error: {type(e).__name__}: {e}")
+    with tab_stop:
+        try:
+            tab_stop_analysis(df)
+        except Exception as e:
+            st.error(f"Stop Analysis error: {type(e).__name__}: {e}")
     with tab_charts:
         tab_charts_local(events, df)
     with tab_log:
