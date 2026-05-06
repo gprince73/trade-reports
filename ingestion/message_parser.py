@@ -70,7 +70,7 @@ KNOWN_ASSETS = {"BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"}
 # "Converny T(x) WIN ASSET" / "Converny T(x) LOSS ASSET". We collapse
 # all signal counts into a single bot per tier so the dashboard groups
 # by tier (Converny T1 / T2 / T3).
-CONVERNY_RE = re.compile(r"\bConverny\s+T(\d+)\b", re.IGNORECASE)
+CONVERNY_RE = re.compile(r"\bConverny\s+(?:1Hr\s+)?T(\d+)\b", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +173,11 @@ def extract_bot_and_asset(text: str, event_type: EventType) -> tuple[str, str, s
     if converny_match:
         bot_name = f"Converny T{int(converny_match.group(1))}"
         asset, timeframe = _detect_asset_and_timeframe(text, first_line)
+        # 1Hr Converny contracts (KX{ASSET}D-...) don't match CONTRACT_ID_RE,
+        # so the timeframe falls back to default. Detect "1Hr" in the first
+        # line to set it correctly.
+        if re.search(r"\b1Hr\b", first_line, re.IGNORECASE):
+            timeframe = "1HR"
         return bot_name, asset, timeframe
 
     cleaned = first_line
