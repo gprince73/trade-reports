@@ -72,6 +72,58 @@ KNOWN_ASSETS = {"BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"}
 # by tier (Converny T1 / T2 / T3).
 CONVERNY_RE = re.compile(r"\bConverny\s+(?:1Hr\s+)?T(\d+)\b", re.IGNORECASE)
 
+# Noise patterns — messages that look like alerts but aren't trade events.
+# These are filtered out before classification so they never reach the
+# dashboard's bot/asset dropdowns. The underlying Telegram alerts still
+# fire; we just stop ingesting them.
+NOISE_PATTERNS = [
+    # Feed publisher status messages, e.g. "Pub BTC Feeds Normal (6/7)"
+    re.compile(r"^\s*Pub\s+(?:BTC|ETH|SOL|XRP|DOGE|HYPE|BNB)\b", re.IGNORECASE),
+    # Daily summary digest from the report bot itself
+    re.compile(r"Daily\s+Trade\s+Report", re.IGNORECASE),
+    # spike_scalper / spike_hold lifecycle alerts ("live", "BLOCKED ... live01")
+    re.compile(r"\bspike_(?:scalper|hold)", re.IGNORECASE),
+]
+
+
+def is_noise(text: str) -> bool:
+    """True if `text` is a non-trade alert (feed status, daily digest, etc.)
+    that should be excluded from the dashboard entirely."""
+    first_line = text.split("\n")[0]
+    # Strip leading whitespace, emojis, and markdown so the ^Pub anchor
+    # fires on messages like "🚀 Pub BTC Feeds Normal".
+    cleaned = re.sub(
+        r"^[\s\U0001f300-\U0001f9ff☀-⯿️‍*_]+",
+        "",
+        first_line,
+    )
+    return any(p.search(cleaned) for p in NOISE_PATTERNS)
+
+
+def normalize_bot_name(bot_name: str) -> str:
+    """Apply per-family cleanups to an extracted bot name.
+
+    Handles:
+    - "BUY SIGNAL X #N"  → "X"  (probability-family signal messages)
+    - "X #N"             → "X"  (strip trailing signal counter)
+    - "probability settlement" → "probability"  (legacy variant)
+    - "X-"               → "X-1Hr"  (trailing-dash = 1Hr variant convention)
+    """
+    if not bot_name:
+        return bot_name
+
+    bot_name = re.sub(r"^\s*BUY\s+SIGNAL\s+", "", bot_name, flags=re.IGNORECASE)
+    bot_name = re.sub(r"\s*#\d+\s*$", "", bot_name)
+    bot_name = bot_name.strip()
+
+    if bot_name.lower() == "probability settlement":
+        bot_name = "probability"
+
+    if bot_name.endswith("-"):
+        bot_name = bot_name[:-1] + "-1Hr"
+
+    return bot_name
+
 
 # ---------------------------------------------------------------------------
 # Shared functions
@@ -178,7 +230,7 @@ def extract_bot_and_asset(text: str, event_type: EventType) -> tuple[str, str, s
         # line to set it correctly.
         if re.search(r"\b1Hr\b", first_line, re.IGNORECASE):
             timeframe = "1HR"
-        return bot_name, asset, timeframe
+        return normalize_bot_name(bot_name), asset, timeframe
 
     cleaned = first_line
     cleaned = re.sub(r"^[\s\U0001f300-\U0001f9ff\u2600-\u2bff\ufe0f\u200d]+", "", cleaned)
@@ -215,6 +267,14 @@ def extract_bot_and_asset(text: str, event_type: EventType) -> tuple[str, str, s
     if "1HR" in bot_name.upper() or "1hr" in bot_name:
         timeframe = "1HR"
         bot_name = re.sub(r"\s*1HR\s*", " ", bot_name, flags=re.IGNORECASE).strip()
+        # Strip any trailing dashes the source bot may already include
+        # (e.g. "Probability105-") so we don't end up with "Probability105--1Hr".
+        bot_name = bot_name.rstrip("-").strip()
+        # Append "-1Hr" suffix so 15M and 1HR variants show as distinct rows
+        # in the By Bot dropdown. The Converny family takes a separate code
+        # path above so it's unaffected.
+        if bot_name and not bot_name.endswith("-1Hr"):
+            bot_name = bot_name + "-1Hr"
     else:
         contract_match = CONTRACT_RE.search(text)
         if contract_match:
@@ -227,7 +287,7 @@ def extract_bot_and_asset(text: str, event_type: EventType) -> tuple[str, str, s
     if not bot_name:
         bot_name = "Unknown"
 
-    return bot_name, asset, timeframe
+    return normalize_bot_name(bot_name), asset, timeframe
 
 
 def parse_fills(text: str) -> list[Fill]:
@@ -261,6 +321,11 @@ def parse_text_to_event(plain_text: str, timestamp: datetime) -> Optional[TradeE
     # Strip Telegram Markdown bold markers (**text**) that appear
     # in the raw API but not in the HTML export.
     plain_text = plain_text.replace("**", "")
+
+    # Filter out noisy alerts (Pub feed status, Daily Trade Report digest)
+    # so they don't pollute the dashboard's bot/asset dropdowns.
+    if is_noise(plain_text):
+        return None
 
     event_type = classify_event(plain_text)
     if event_type is None or event_type == EventType.STARTUP:
