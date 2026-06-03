@@ -1,12 +1,12 @@
 {
   "total_signals": 64563,
-  "total_outcomes": 9643,
-  "total_wins": 7386,
-  "total_losses": 2257,
+  "total_outcomes": 9650,
+  "total_wins": 7389,
+  "total_losses": 2261,
   "total_jackpots": 50,
-  "win_rate": 0.765944208233952,
-  "net_pnl": 5184.8200000000015,
+  "win_rate": 0.765699481865285,
+  "net_pnl": 5141.8200000000015,
   "unique_bots": 136,
   "unique_assets": 8,
-  "date_range": "2026-02-03 08:58:44 - 2026-06-03 06:30:03"
+  "date_range": "2026-02-03 08:58:44 - 2026-06-03 12:02:00"
 }
